@@ -8,3 +8,4 @@ output/
 .claude/
 voice_lab/samples/
 voice_lab/voices.json
+CLAUDE.local.md
