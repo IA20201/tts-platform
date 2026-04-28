@@ -137,8 +137,9 @@ class MiMoTTSClient:
                 continue
             delta = chunk.choices[0].delta
             audio = getattr(delta, "audio", None)
-            if audio and hasattr(audio, "data") and audio.data:
-                yield base64.b64decode(audio.data)
+            data = self._extract_stream_audio_data(audio)
+            if data:
+                yield data
 
     async def synthesize_stream_async(
         self,
@@ -166,8 +167,9 @@ class MiMoTTSClient:
                 continue
             delta = chunk.choices[0].delta
             audio = getattr(delta, "audio", None)
-            if audio and hasattr(audio, "data") and audio.data:
-                yield base64.b64decode(audio.data)
+            data = self._extract_stream_audio_data(audio)
+            if data:
+                yield data
 
     def collect_stream_to_wav(
         self,
@@ -282,6 +284,26 @@ class MiMoTTSClient:
     # ──────────────────────────────────────────────
     #  内部方法
     # ──────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_stream_audio_data(audio) -> bytes | None:
+        """从流式 chunk 的 audio 字段提取 PCM 数据。
+
+        流式返回的 audio 可能是 dict 或对象，统一处理。
+        """
+        if not audio:
+            return None
+        # dict 形式: {'id': '...', 'data': 'base64...'}
+        if isinstance(audio, dict):
+            raw = audio.get("data")
+            if raw:
+                return base64.b64decode(raw)
+            return None
+        # 对象形式
+        raw = getattr(audio, "data", None)
+        if raw:
+            return base64.b64decode(raw)
+        return None
 
     @staticmethod
     def _build_messages(text: str, instruction: str, model: str) -> list[dict]:
