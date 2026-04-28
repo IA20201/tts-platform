@@ -6,3 +6,5 @@ __pycache__/
 output/
 .batch_state.json
 .claude/
+voice_lab/samples/
+voice_lab/voices.json

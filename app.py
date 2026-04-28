@@ -45,7 +45,13 @@ voice_manager = VoiceAssetManager(settings.voices_db_path)
 
 TTS_MODELS = ["mimo-v2.5-tts", "mimo-v2.5-tts-voicedesign", "mimo-v2.5-tts-voiceclone"]
 AUDIO_FORMATS = ["wav", "mp3", "pcm16"]
-ALL_VOICES = BUILT_IN_VOICES.get("mimo-v2.5-tts", [])
+
+
+def get_voice_choices() -> list[str]:
+    """动态获取音色列表（内置 + 自定义）"""
+    built_in = BUILT_IN_VOICES.get("mimo-v2.5-tts", [])
+    custom = [v["name"] for v in voice_manager.list_voices() if v.get("source") != "built_in"]
+    return built_in + custom
 
 
 # ──────────────────────────────────────────────
@@ -198,10 +204,10 @@ def clone_voice_preview(audio_file, preview_text: str) -> str | None:
         return None
 
 
-def save_voice_to_lab(name: str, source: str, description: str, audio_file) -> str:
-    """保存音色到音色库"""
+def save_voice_to_lab(name: str, source: str, description: str, audio_file) -> tuple:
+    """保存音色到音色库，返回 (结果文本, 单句音色下拉, 批量音色下拉)"""
     if not name.strip():
-        return "请输入音色名称"
+        return ("请输入音色名称", gr.update(), gr.update())
     try:
         if source == "voicedesign":
             voice_manager.add_voice(name, "voicedesign", description=description)
@@ -214,10 +220,11 @@ def save_voice_to_lab(name: str, source: str, description: str, audio_file) -> s
                 sample_path=audio_file,
             )
         else:
-            return "请提供必要信息"
-        return f"音色 '{name}' 已保存"
+            return ("请提供必要信息", gr.update(), gr.update())
+        choices = get_voice_choices()
+        return (f"音色 '{name}' 已保存", gr.update(choices=choices), gr.update(choices=choices))
     except Exception as e:
-        return f"保存失败: {e}"
+        return (f"保存失败: {e}", gr.update(), gr.update())
 
 
 def list_voices_ui() -> str:
@@ -240,7 +247,7 @@ def list_voices_ui() -> str:
 # ──────────────────────────────────────────────
 
 def build_app() -> gr.Blocks:
-    with gr.Blocks(title="MiMo V2.5 语音工作站", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="MiMo V2.5 语音工作站") as app:
         gr.Markdown("# 🎙️ MiMo V2.5 导演级语音工作站")
 
         with gr.Tab("单句合成"):
@@ -262,7 +269,7 @@ def build_app() -> gr.Blocks:
 
             with gr.Row():
                 model_select = gr.Dropdown(choices=TTS_MODELS, value="mimo-v2.5-tts", label="模型")
-                voice_select = gr.Dropdown(choices=ALL_VOICES, value="Chloe", label="音色")
+                voice_select = gr.Dropdown(choices=get_voice_choices(), value="Chloe", label="音色")
                 format_select = gr.Dropdown(choices=AUDIO_FORMATS, value="wav", label="音频格式")
 
             synthesize_btn = gr.Button("▶ 合成", variant="primary")
@@ -285,7 +292,7 @@ def build_app() -> gr.Blocks:
                 with gr.Column():
                     batch_director = gr.Checkbox(value=True, label="使用导演模式（AI 自动生成指令）")
                     batch_concurrency = gr.Slider(minimum=1, maximum=20, value=10, step=1, label="并发数")
-                    batch_voice = gr.Dropdown(choices=ALL_VOICES, value="Chloe", label="音色")
+                    batch_voice = gr.Dropdown(choices=get_voice_choices(), value="Chloe", label="音色")
                     batch_model = gr.Dropdown(choices=TTS_MODELS, value="mimo-v2.5-tts", label="模型")
 
             batch_btn = gr.Button("▶ 开始批量合成", variant="primary")
@@ -326,7 +333,11 @@ def build_app() -> gr.Blocks:
 
             design_btn.click(fn=design_voice_preview, inputs=[design_desc, design_text], outputs=[design_audio])
             clone_btn.click(fn=clone_voice_preview, inputs=[clone_file, clone_text], outputs=[clone_audio])
-            save_btn.click(fn=save_voice_to_lab, inputs=[save_name, save_source, save_desc, save_file], outputs=[save_result])
+            save_btn.click(
+                fn=save_voice_to_lab,
+                inputs=[save_name, save_source, save_desc, save_file],
+                outputs=[save_result, voice_select, batch_voice],
+            )
             list_btn.click(fn=list_voices_ui, outputs=[voices_list])
 
     return app
@@ -335,4 +346,4 @@ def build_app() -> gr.Blocks:
 if __name__ == "__main__":
     os.makedirs(settings.output_dir, exist_ok=True)
     app = build_app()
-    app.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    app.launch(server_name="0.0.0.0", server_port=7860, share=False, theme=gr.themes.Soft())
