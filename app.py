@@ -14,6 +14,8 @@ import os
 import tempfile
 from pathlib import Path
 
+os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
+
 import gradio as gr
 
 from config import BUILT_IN_VOICES, Settings
@@ -346,4 +348,10 @@ def build_app() -> gr.Blocks:
 if __name__ == "__main__":
     os.makedirs(settings.output_dir, exist_ok=True)
     app = build_app()
-    app.launch(server_name="0.0.0.0", server_port=7860, share=False, theme=gr.themes.Soft())
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
+        theme=gr.themes.Soft(),
+        enable_monitoring=False,
+    )
