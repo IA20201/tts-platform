@@ -3,7 +3,7 @@
   "name": "TTS Read Aloud",
   "version": "1.0.0",
   "description": "多引擎 TTS 朗读扩展（MiMo / AstraTTS / MOSS）",
-  "permissions": ["activeTab", "storage"],
+  "permissions": ["activeTab", "storage", "http://localhost/*", "http://127.0.0.1/*"],
   "browser_action": {
     "default_popup": "popup.html",
     "default_icon": {

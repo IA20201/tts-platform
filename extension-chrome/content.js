@@ -20,10 +20,20 @@
   `;
   document.body.appendChild(panel);
 
+  // ── 面板定位：始终基于按钮位置 ──
+  function updatePanelPosition() {
+    const r = btn.getBoundingClientRect();
+    panel.style.left = (r.right - 200) + 'px';   // 面板宽 200px，右对齐按钮
+    panel.style.top = (r.top - 210) + 'px';       // 面板在按钮上方
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+
   // ── 拖动逻辑 ──
-  let isDragging = false, offsetX, offsetY;
+  let isDragging = false, offsetX, offsetY, dragMoved = false;
   btn.addEventListener('mousedown', e => {
     isDragging = true;
+    dragMoved = false;
     offsetX = e.clientX - btn.getBoundingClientRect().left;
     offsetY = e.clientY - btn.getBoundingClientRect().top;
     btn.classList.add('dragging');
@@ -31,15 +41,13 @@
   });
   document.addEventListener('mousemove', e => {
     if (!isDragging) return;
+    dragMoved = true;
     btn.style.left = (e.clientX - offsetX) + 'px';
     btn.style.top = (e.clientY - offsetY) + 'px';
     btn.style.right = 'auto';
     btn.style.bottom = 'auto';
-    // 面板跟随
-    panel.style.left = btn.style.left;
-    panel.style.top = (parseInt(btn.style.top) - 200) + 'px';
-    panel.style.right = 'auto';
-    panel.style.bottom = 'auto';
+    // 面板跟随拖动
+    if (panel.classList.contains('show')) updatePanelPosition();
   });
   document.addEventListener('mouseup', () => {
     isDragging = false;
@@ -48,9 +56,12 @@
 
   // ── 面板切换 ──
   btn.addEventListener('click', e => {
-    if (isDragging) return;
+    if (dragMoved) return;  // 拖动结束不触发
     panel.classList.toggle('show');
-    updateSelBtn();
+    if (panel.classList.contains('show')) {
+      updatePanelPosition();
+      updateSelBtn();
+    }
   });
 
   // 点击外部关闭面板
@@ -99,7 +110,6 @@
     setStatus('正在合成...');
     showStop();
     try {
-      // 发送到 background 做 API 调用
       const resp = await chrome.runtime.sendMessage({ type: 'synthesize', text });
       if (resp.error) {
         setStatus('错误: ' + resp.error);
@@ -130,7 +140,7 @@
       hideStop();
       URL.revokeObjectURL(url);
     };
-    currentAudio.onerror = e => {
+    currentAudio.onerror = () => {
       setStatus('音频错误');
       hideStop();
     };
@@ -151,7 +161,6 @@
     currentAudio = null;
   }
 
-  // 监听 background 的停止消息
   chrome.runtime.onMessage.addListener(msg => {
     if (msg.type === 'stopped') {
       if (currentAudio) { currentAudio.pause(); currentAudio = null; }
