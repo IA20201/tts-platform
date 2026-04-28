@@ -238,11 +238,12 @@ class MiMoTTSClient:
         sample_audio_path: str,
         text: str,
         audio_format: str = "wav",
+        director_instruction: str = "",
     ) -> bytes:
         """上传音频样本复刻音色。sample_audio_path 支持 mp3/wav"""
         b64_str, mime = read_audio_to_b64(sample_audio_path)
         messages = [
-            {"role": "user", "content": ""},  # voiceclone 必须有 user 消息，可为空
+            {"role": "user", "content": director_instruction or ""},  # voiceclone 必须有 user 消息
             {"role": "assistant", "content": text},
         ]
         fmt = self._resolve_format(audio_format, stream=False)
