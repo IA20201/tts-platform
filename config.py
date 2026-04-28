@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     mimo_base_url: str = "https://api.xiaomimimo.com/v1"
     llm_api_key: str = ""
     llm_base_url: str = ""
-    llm_model: str = "mimo-v2.5-flash"
+    llm_model: str = "mimo-v2.5"
     tts_model: str = "mimo-v2.5-tts"
     default_voice: str = "Chloe"
     max_concurrency: int = 10

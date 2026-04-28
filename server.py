@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -47,6 +48,13 @@ director = DirectorAgent(
 voice_manager = VoiceAssetManager(settings.voices_db_path)
 
 app = FastAPI(title="MiMo TTS Studio", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ──────────────────────────────────────────────

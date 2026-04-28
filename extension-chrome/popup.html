@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 320px; font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; background: #f8f9fa; color: #333; }
+.header { background: linear-gradient(135deg, #4A90D9, #357ABD); color: white; padding: 12px 16px; font-size: 15px; font-weight: 600; }
+.section { padding: 12px 16px; border-bottom: 1px solid #e9ecef; }
+.section.hidden { display: none; }
+label { display: block; margin-bottom: 4px; font-weight: 500; color: #555; }
+input[type="text"], select, textarea { width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; margin-bottom: 8px; }
+textarea { resize: vertical; min-height: 40px; }
+input[type="checkbox"] { margin-right: 6px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row input[type="text"] { flex: 1; }
+.btn { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn-primary { background: #4A90D9; color: white; }
+.btn-primary:hover { background: #357ABD; }
+.btn-sm { padding: 4px 8px; font-size: 11px; background: #6c757d; color: white; }
+.btn-sm:hover { background: #5a6268; }
+.btn-save { width: 100%; padding: 10px; background: #28a745; color: white; font-size: 14px; font-weight: 600; }
+.btn-save:hover { background: #218838; }
+.status { text-align: center; padding: 4px; font-size: 12px; color: #28a745; min-height: 20px; }
+</style>
+</head>
+<body>
+<div class="header">TTS Read Aloud</div>
+
+<div class="section">
+  <label>TTS 引擎</label>
+  <select id="engine">
+    <option value="mimo">MiMo TTS（云端）</option>
+    <option value="astra">AstraTTS（本地）</option>
+    <option value="moss">MOSS-TTS-Nano（本地）</option>
+  </select>
+</div>
+
+<!-- MiMo 设置 -->
+<div class="section" id="mimo-settings">
+  <label>服务器地址</label>
+  <input type="text" id="mimo-server" value="http://localhost:18900">
+  <label>音色</label>
+  <div class="row">
+    <select id="mimo-voice"><option value="Chloe">Chloe</option></select>
+    <button class="btn btn-sm" id="mimo-refresh">刷新</button>
+  </div>
+  <label>导演指令（可选）</label>
+  <textarea id="mimo-director" placeholder="如：(温柔)(低语)"></textarea>
+  <label><input type="checkbox" id="mimo-auto-director"> AI 自动生成指令</label>
+</div>
+
+<!-- AstraTTS 设置 -->
+<div class="section hidden" id="astra-settings">
+  <label>服务器地址</label>
+  <input type="text" id="astra-server" value="http://localhost:5000">
+  <label>音色 (Avatar)</label>
+  <div class="row">
+    <select id="astra-avatar"><option value="chenxing">chenxing</option></select>
+    <button class="btn btn-sm" id="astra-refresh">刷新</button>
+  </div>
+  <label><input type="checkbox" id="astra-v2"> 使用 V2 引擎</label>
+</div>
+
+<!-- MOSS 设置 -->
+<div class="section hidden" id="moss-settings">
+  <label>服务器地址</label>
+  <input type="text" id="moss-server" value="http://localhost:18083">
+  <label>参考音频路径</label>
+  <input type="text" id="moss-ref-audio" value="assets/audio/zh_1.wav" placeholder="服务端音频文件路径">
+</div>
+
+<div class="section">
+  <button class="btn btn-save" id="save-btn">保存设置</button>
+  <div class="status" id="save-status"></div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>
