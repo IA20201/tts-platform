@@ -222,9 +222,9 @@ def clone_voice_preview(audio_file, preview_text: str) -> str | None:
 
 
 def save_voice_to_lab(name: str, source: str, description: str, audio_file) -> tuple:
-    """保存音色到音色库，返回 (结果文本, 单句音色下拉, 批量音色下拉)"""
+    """保存音色到音色库，返回 (结果文本, 单句音色下拉, 批量音色下拉, 删除音色下拉)"""
     if not name.strip():
-        return ("请输入音色名称", gr.update(), gr.update())
+        return ("请输入音色名称", gr.update(), gr.update(), gr.update())
     try:
         if source == "voicedesign":
             voice_manager.add_voice(name, "voicedesign", description=description)
@@ -237,11 +237,26 @@ def save_voice_to_lab(name: str, source: str, description: str, audio_file) -> t
                 sample_path=audio_file,
             )
         else:
-            return ("请提供必要信息", gr.update(), gr.update())
+            return ("请提供必要信息", gr.update(), gr.update(), gr.update())
         choices = get_voice_choices()
-        return (f"音色 '{name}' 已保存", gr.update(choices=choices), gr.update(choices=choices))
+        return (f"音色 '{name}' 已保存", gr.update(choices=choices), gr.update(choices=choices), gr.update(choices=choices))
     except Exception as e:
-        return (f"保存失败: {e}", gr.update(), gr.update())
+        return (f"保存失败: {e}", gr.update(), gr.update(), gr.update())
+
+
+def delete_voice_from_lab(name: str) -> tuple:
+    """从音色库删除音色，返回 (结果文本, 单句音色下拉, 批量音色下拉, 删除音色下拉)"""
+    if not name.strip():
+        return ("请选择要删除的音色", gr.update(), gr.update(), gr.update())
+    try:
+        ok = voice_manager.delete_voice(name)
+        if ok:
+            choices = get_voice_choices()
+            return (f"音色 '{name}' 已删除", gr.update(choices=choices), gr.update(choices=choices), gr.update(choices=choices, value=None))
+        else:
+            return (f"音色 '{name}' 不存在", gr.update(), gr.update(), gr.update())
+    except Exception as e:
+        return (f"删除失败: {e}", gr.update(), gr.update(), gr.update())
 
 
 def list_voices_ui() -> str:
@@ -345,6 +360,11 @@ def build_app() -> gr.Blocks:
             save_btn = gr.Button("保存到音色库")
             save_result = gr.Textbox(label="保存结果", interactive=False)
 
+            with gr.Row():
+                delete_voice_select = gr.Dropdown(choices=get_voice_choices(), label="选择要删除的音色", interactive=True)
+                delete_btn = gr.Button("删除音色", variant="stop")
+                delete_result = gr.Textbox(label="删除结果", interactive=False)
+
             list_btn = gr.Button("刷新音色列表")
             voices_list = gr.Textbox(label="音色列表", lines=10, interactive=False)
 
@@ -353,7 +373,12 @@ def build_app() -> gr.Blocks:
             save_btn.click(
                 fn=save_voice_to_lab,
                 inputs=[save_name, save_source, save_desc, save_file],
-                outputs=[save_result, voice_select, batch_voice],
+                outputs=[save_result, voice_select, batch_voice, delete_voice_select],
+            )
+            delete_btn.click(
+                fn=delete_voice_from_lab,
+                inputs=[delete_voice_select],
+                outputs=[delete_result, voice_select, batch_voice, delete_voice_select],
             )
             list_btn.click(fn=list_voices_ui, outputs=[voices_list])
 
