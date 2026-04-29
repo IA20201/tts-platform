@@ -33,8 +33,8 @@ async function synthesizeMiMo(text, cfg) {
       try {
         const obj = JSON.parse(payload);
         if (obj.error) throw new Error(obj.error);
-      } catch (e) {
-        if (e.message && e.message !== 'Unexpected end of JSON input') throw e;
+      } catch {
+        // 不是 JSON，直接作为 base64 chunk
         const bytes = Uint8Array.from(atob(payload), c => c.charCodeAt(0));
         pcmChunks.push(bytes);
       }
