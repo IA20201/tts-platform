@@ -82,9 +82,24 @@ def synthesize_single(
         gr.Warning("请输入合成文本")
         return None
     try:
-        # voicedesign: instruction 作为音色描述
-        # voiceclone: voice 为音色名称，需从音色库获取 base64
-        if model == "mimo-v2.5-tts-voicedesign":
+        # 自动识别自定义音色类型并路由
+        voice_info = voice_manager.get_voice(voice)
+        source = voice_info.get("source", "built_in") if voice_info else None
+
+        if source == "voiceclone":
+            clone_data = voice_manager.get_voiceclone_b64(voice)
+            if not clone_data:
+                gr.Warning(f"音色 '{voice}' 的克隆数据缺失")
+                return None
+            b64_data, mime = clone_data
+            audio_bytes = client.voice_clone_from_b64(b64_data, mime, text, audio_format, instruction)
+        elif source == "voicedesign":
+            desc = voice_info.get("description", "")
+            if not desc:
+                gr.Warning(f"音色 '{voice}' 的描述缺失")
+                return None
+            audio_bytes = client.voice_design(desc, text, audio_format)
+        elif model == "mimo-v2.5-tts-voicedesign":
             audio_bytes = client.voice_design(instruction, text, audio_format)
         elif model == "mimo-v2.5-tts-voiceclone":
             clone_data = voice_manager.get_voiceclone_b64(voice)

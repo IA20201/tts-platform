@@ -264,10 +264,11 @@ class MiMoTTSClient:
         sample_mime: str,
         text: str,
         audio_format: str = "wav",
+        director_instruction: str = "",
     ) -> bytes:
         """从 Base64 数据复刻音色（用于 VoiceAssetManager）"""
         messages = [
-            {"role": "user", "content": ""},
+            {"role": "user", "content": director_instruction or ""},
             {"role": "assistant", "content": text},
         ]
         fmt = self._resolve_format(audio_format, stream=False)

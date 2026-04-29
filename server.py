@@ -119,20 +119,34 @@ def list_voices():
 
 @app.post("/synthesize", response_model=TTSResponse)
 def synthesize(req: SynthesizeRequest):
-    """语音合成"""
+    """语音合成 — 自动识别自定义音色并路由到对应 API"""
     try:
         instruction = req.director_instruction
         if req.auto_director and not instruction:
             instruction = director.generate_instruction(req.text)
 
-        audio = client.synthesize(
-            text=req.text,
-            director_instruction=instruction,
-            model=req.model,
-            voice=req.voice,
-            audio_format=req.audio_format,
-        )
-        pcm_len = len(audio) - 44 if req.audio_format == "wav" else len(audio)
+        voice_info = voice_manager.get_voice(req.voice)
+        source = voice_info.get("source", "built_in") if voice_info else None
+
+        if source == "voiceclone":
+            b64_data, mime = voice_manager.get_voiceclone_b64(req.voice)
+            if not b64_data:
+                raise ValueError(f"voiceclone 音色数据缺失: {req.voice}")
+            audio = client.voice_clone_from_b64(b64_data, mime, req.text, req.audio_format, instruction)
+        elif source == "voicedesign":
+            desc = voice_info.get("description", "")
+            if not desc:
+                raise ValueError(f"voicedesign 音色描述缺失: {req.voice}")
+            audio = client.voice_design(desc, req.text, req.audio_format)
+        else:
+            audio = client.synthesize(
+                text=req.text,
+                director_instruction=instruction,
+                model=req.model,
+                voice=req.voice,
+                audio_format=req.audio_format,
+            )
+
         return TTSResponse(
             audio_base64=base64.b64encode(audio).decode(),
             audio_format=req.audio_format,
@@ -151,13 +165,28 @@ def synthesize_raw(req: SynthesizeRequest):
         if req.auto_director and not instruction:
             instruction = director.generate_instruction(req.text)
 
-        audio = client.synthesize(
-            text=req.text,
-            director_instruction=instruction,
-            model=req.model,
-            voice=req.voice,
-            audio_format=req.audio_format,
-        )
+        voice_info = voice_manager.get_voice(req.voice)
+        source = voice_info.get("source", "built_in") if voice_info else None
+
+        if source == "voiceclone":
+            b64_data, mime = voice_manager.get_voiceclone_b64(req.voice)
+            if not b64_data:
+                raise ValueError(f"voiceclone 音色数据缺失: {req.voice}")
+            audio = client.voice_clone_from_b64(b64_data, mime, req.text, req.audio_format, instruction)
+        elif source == "voicedesign":
+            desc = voice_info.get("description", "")
+            if not desc:
+                raise ValueError(f"voicedesign 音色描述缺失: {req.voice}")
+            audio = client.voice_design(desc, req.text, req.audio_format)
+        else:
+            audio = client.synthesize(
+                text=req.text,
+                director_instruction=instruction,
+                model=req.model,
+                voice=req.voice,
+                audio_format=req.audio_format,
+            )
+
         media = {
             "wav": "audio/wav",
             "mp3": "audio/mpeg",
@@ -198,7 +227,7 @@ async def voice_clone(
 def voice_clone_b64(sample_base64: str, sample_mime: str, text: str, audio_format: str = "wav", director_instruction: str = ""):
     """音色克隆 — Base64 输入"""
     try:
-        audio = client.voice_clone_from_b64(sample_base64, sample_mime, text, audio_format)
+        audio = client.voice_clone_from_b64(sample_base64, sample_mime, text, audio_format, director_instruction)
         return TTSResponse(
             audio_base64=base64.b64encode(audio).decode(),
             audio_format=audio_format,
