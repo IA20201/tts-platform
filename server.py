@@ -113,7 +113,7 @@ def list_voices():
     """列出所有可用音色"""
     return {
         "built_in": voice_manager.get_built_in_voices(),
-        "custom": voice_manager.list_voices(),
+        "custom": [v for v in voice_manager.list_voices() if v.get("source") != "built_in"],
     }
 
 

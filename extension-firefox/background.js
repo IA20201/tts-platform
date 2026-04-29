@@ -76,6 +76,30 @@ function splitText(text, maxChars = 300) {
 
 let shouldStop = false;
 
+// ── 右键菜单：朗读全文 ──
+browser.runtime.onInstalled.addListener(() => {
+  browser.contextMenus.create({
+    id: 'tts-read-full',
+    title: '🔊 朗读全文',
+    contexts: ['page'],
+  });
+});
+
+browser.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'tts-read-full') {
+    shouldStop = false;
+    // 获取页面全文并朗读
+    browser.tabs.sendMessage(tab.id, { type: 'getFullText' }).then(text => {
+      if (text) handleSynthesize(text).then(result => {
+        browser.tabs.sendMessage(tab.id, { type: 'playAudio', ...result });
+      }).catch(e => {
+        browser.tabs.sendMessage(tab.id, { type: 'ttsError', error: e.message });
+      });
+    }).catch(() => {});
+  }
+});
+
+// ── 消息监听 ──
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'synthesize') {
     shouldStop = false;

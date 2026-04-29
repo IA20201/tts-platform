@@ -5,122 +5,83 @@
   const btn = document.createElement('div');
   btn.id = 'tts-read-aloud-btn';
   btn.textContent = '🔊';
-  btn.title = 'TTS Read Aloud';
+  btn.title = 'TTS: 选中文字后点击朗读';
   document.body.appendChild(btn);
 
-  // ── 操作面板 ──
-  const panel = document.createElement('div');
-  panel.id = 'tts-panel';
-  panel.innerHTML = `
-    <button class="tts-btn tts-btn-read" id="tts-read-full">📖 朗读全文</button>
-    <button class="tts-btn tts-btn-sel" id="tts-read-sel">✂️ 朗读选中</button>
-    <button class="tts-btn tts-btn-stop" id="tts-stop" style="display:none">⏹ 停止</button>
-    <div class="tts-progress"><div class="tts-progress-bar" id="tts-progress-bar"></div></div>
-    <div class="tts-status" id="tts-status"></div>
-  `;
-  document.body.appendChild(panel);
+  // ── 状态提示 ──
+  const toast = document.createElement('div');
+  toast.id = 'tts-toast';
+  toast.style.display = 'none';
+  document.body.appendChild(toast);
 
-  // ── 面板定位：始终基于按钮位置 ──
-  function updatePanelPosition() {
-    const r = btn.getBoundingClientRect();
-    panel.style.left = (r.right - 200) + 'px';   // 面板宽 200px，右对齐按钮
-    panel.style.top = (r.top - 210) + 'px';       // 面板在按钮上方
-    panel.style.right = 'auto';
-    panel.style.bottom = 'auto';
+  function showToast(msg, duration = 2000) {
+    toast.textContent = msg;
+    toast.style.display = 'block';
+    if (duration > 0) setTimeout(() => { toast.style.display = 'none'; }, duration);
   }
 
   // ── 拖动逻辑 ──
-  let isDragging = false, offsetX, offsetY, dragMoved = false;
+  let isDragging = false, dragMoved = false;
+  let offsetX, offsetY, startX, startY;
+  const DRAG_THRESHOLD = 5;
+
   btn.addEventListener('mousedown', e => {
     isDragging = true;
     dragMoved = false;
+    startX = e.clientX;
+    startY = e.clientY;
     offsetX = e.clientX - btn.getBoundingClientRect().left;
     offsetY = e.clientY - btn.getBoundingClientRect().top;
     btn.classList.add('dragging');
     e.preventDefault();
   });
+
   document.addEventListener('mousemove', e => {
     if (!isDragging) return;
-    dragMoved = true;
-    btn.style.left = (e.clientX - offsetX) + 'px';
-    btn.style.top = (e.clientY - offsetY) + 'px';
-    btn.style.right = 'auto';
-    btn.style.bottom = 'auto';
-    // 面板跟随拖动
-    if (panel.classList.contains('show')) updatePanelPosition();
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+      dragMoved = true;
+    }
+    if (dragMoved) {
+      btn.style.left = (e.clientX - offsetX) + 'px';
+      btn.style.top = (e.clientY - offsetY) + 'px';
+      btn.style.right = 'auto';
+      btn.style.bottom = 'auto';
+    }
   });
+
   document.addEventListener('mouseup', () => {
     isDragging = false;
     btn.classList.remove('dragging');
   });
 
-  // ── 面板切换 ──
+  // ── 点击按钮：直接朗读选中文本 ──
   btn.addEventListener('click', e => {
-    if (dragMoved) return;  // 拖动结束不触发
-    panel.classList.toggle('show');
-    if (panel.classList.contains('show')) {
-      updatePanelPosition();
-      updateSelBtn();
-    }
-  });
-
-  // 点击外部关闭面板
-  document.addEventListener('click', e => {
-    if (!btn.contains(e.target) && !panel.contains(e.target)) {
-      panel.classList.remove('show');
-    }
-  });
-
-  // ── 朗读选中按钮状态 ──
-  function updateSelBtn() {
-    const sel = window.getSelection().toString().trim();
-    const selBtn = document.getElementById('tts-read-sel');
-    if (sel) {
-      selBtn.classList.remove('disabled');
-      selBtn.title = sel.slice(0, 50) + (sel.length > 50 ? '...' : '');
-    } else {
-      selBtn.classList.add('disabled');
-      selBtn.title = '请先选中文本';
-    }
-  }
-  document.addEventListener('selectionchange', updateSelBtn);
-
-  // ── 朗读全文 ──
-  document.getElementById('tts-read-full').addEventListener('click', () => {
-    const text = document.body.innerText.trim();
-    if (text) doRead(text);
-  });
-
-  // ── 朗读选中 ──
-  document.getElementById('tts-read-sel').addEventListener('click', () => {
+    if (dragMoved) return;
     const text = window.getSelection().toString().trim();
-    if (text) doRead(text);
-  });
-
-  // ── 停止 ──
-  document.getElementById('tts-stop').addEventListener('click', () => {
-    browser.runtime.sendMessage({ type: 'stop' });
-    hideStop();
+    if (!text) {
+      showToast('请先选中文字', 1500);
+      return;
+    }
+    doRead(text);
   });
 
   // ── 核心朗读逻辑 ──
   let currentAudio = null;
 
   async function doRead(text) {
-    setStatus('正在合成...');
-    showStop();
+    showToast('正在合成...', 0);
     try {
       const resp = await browser.runtime.sendMessage({ type: 'synthesize', text });
       if (resp.error) {
-        setStatus('错误: ' + resp.error);
-        hideStop();
+        showToast('错误: ' + resp.error, 3000);
         return;
       }
-      setStatus('播放中...');
+      showToast('播放中...', 0);
       playAudioBase64(resp.audioBase64, resp.format);
     } catch (e) {
-      setStatus('请求失败: ' + e.message);
-      hideStop();
+      showToast('请求失败: ' + e.message, 3000);
     }
   }
 
@@ -134,38 +95,37 @@
 
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
     currentAudio = new Audio(url);
-    currentAudio.play().catch(e => setStatus('播放失败: ' + e.message));
+    currentAudio.play().catch(e => showToast('播放失败: ' + e.message, 3000));
     currentAudio.onended = () => {
-      setStatus('播放完成');
-      hideStop();
+      showToast('播放完成', 1500);
       URL.revokeObjectURL(url);
+      currentAudio = null;
     };
     currentAudio.onerror = () => {
-      setStatus('音频错误');
-      hideStop();
+      showToast('音频错误', 3000);
+      currentAudio = null;
     };
   }
 
-  function setStatus(msg) {
-    document.getElementById('tts-status').textContent = msg;
-  }
-  function showStop() {
-    document.getElementById('tts-stop').style.display = 'block';
-    document.getElementById('tts-read-full').style.display = 'none';
-    document.getElementById('tts-read-sel').style.display = 'none';
-  }
-  function hideStop() {
-    document.getElementById('tts-stop').style.display = 'none';
-    document.getElementById('tts-read-full').style.display = 'block';
-    document.getElementById('tts-read-sel').style.display = 'block';
-    currentAudio = null;
-  }
-
-  browser.runtime.onMessage.addListener(msg => {
+  // ── 监听来自 background 的消息（右键菜单朗读全文）──
+  browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'stopped') {
       if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-      setStatus('已停止');
-      hideStop();
+      showToast('已停止', 1500);
+    }
+    if (msg.type === 'getFullText') {
+      sendResponse(document.body.innerText.trim());
+    }
+    if (msg.type === 'playAudio') {
+      if (msg.error) {
+        showToast('错误: ' + msg.error, 3000);
+      } else {
+        showToast('播放中...', 0);
+        playAudioBase64(msg.audioBase64, msg.format);
+      }
+    }
+    if (msg.type === 'ttsError') {
+      showToast('错误: ' + msg.error, 3000);
     }
   });
 })();
