@@ -14,10 +14,59 @@ async function getSettings() {
 
 async function synthesizeMiMo(text, cfg) {
   const body = { text, voice: cfg.voice, director_instruction: cfg.director, auto_director: cfg.autoDirector, model: 'mimo-v2.5-tts', audio_format: 'wav' };
-  const resp = await fetch(`${cfg.server}/synthesize`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const resp = await fetch(`${cfg.server}/synthesize/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!resp.ok) throw new Error(`MiMo ${resp.status}`);
-  const data = await resp.json();
-  return { audioBase64: data.audio_base64, format: data.audio_format };
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  const pcmChunks = [];
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const payload = line.slice(6);
+      if (payload === '[DONE]') break;
+      try {
+        const obj = JSON.parse(payload);
+        if (obj.error) throw new Error(obj.error);
+      } catch (e) {
+        if (e.message && e.message !== 'Unexpected end of JSON input') throw e;
+        // base64 chunk
+        const bytes = Uint8Array.from(atob(payload), c => c.charCodeAt(0));
+        pcmChunks.push(bytes);
+      }
+    }
+  }
+  // 拼接 PCM → WAV
+  const totalLen = pcmChunks.reduce((s, c) => s + c.length, 0);
+  const pcm = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const c of pcmChunks) { pcm.set(c, offset); offset += c.length; }
+  // WAV header
+  const wav = new Uint8Array(44 + totalLen);
+  const view = new DataView(wav.buffer);
+  view.setUint32(0, 0x46464952, true); // "RIFF"
+  view.setUint32(4, 36 + totalLen, true);
+  view.setUint32(8, 0x45564157, true); // "WAVE"
+  view.setUint32(12, 0x20746d66, true); // "fmt "
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true);
+  view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  view.setUint32(36, 0x61746164, true); // "data"
+  view.setUint32(40, totalLen, true);
+  wav.set(pcm, 44);
+  // base64
+  let b64 = '';
+  for (let i = 0; i < wav.length; i++) b64 += String.fromCharCode(wav[i]);
+  return { audioBase64: btoa(b64), format: 'wav' };
 }
 
 async function synthesizeAstra(text, cfg) {
@@ -76,19 +125,23 @@ function splitText(text, maxChars = 300) {
 
 let shouldStop = false;
 
-// ── 右键菜单：朗读全文 ──
+// ── 右键菜单：朗读全文 + 朗读选中 ──
 browser.runtime.onInstalled.addListener(() => {
   browser.contextMenus.create({
     id: 'tts-read-full',
     title: '🔊 朗读全文',
     contexts: ['page'],
   });
+  browser.contextMenus.create({
+    id: 'tts-read-selected',
+    title: '🔊 朗读选中',
+    contexts: ['selection'],
+  });
 });
 
 browser.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'tts-read-full') {
     shouldStop = false;
-    // 获取页面全文并朗读
     browser.tabs.sendMessage(tab.id, { type: 'getFullText' }).then(text => {
       if (text) handleSynthesize(text).then(result => {
         browser.tabs.sendMessage(tab.id, { type: 'playAudio', ...result });
@@ -96,6 +149,17 @@ browser.contextMenus.onClicked.addListener((info, tab) => {
         browser.tabs.sendMessage(tab.id, { type: 'ttsError', error: e.message });
       });
     }).catch(() => {});
+  }
+  if (info.menuItemId === 'tts-read-selected') {
+    const text = info.selectionText;
+    if (text) {
+      shouldStop = false;
+      handleSynthesize(text).then(result => {
+        browser.tabs.sendMessage(tab.id, { type: 'playAudio', ...result });
+      }).catch(e => {
+        browser.tabs.sendMessage(tab.id, { type: 'ttsError', error: e.message });
+      });
+    }
   }
 });
 

@@ -8,6 +8,16 @@
   btn.title = 'TTS: 选中文字后点击朗读';
   document.body.appendChild(btn);
 
+  // ── 恢复上次位置 ──
+  const savedPos = localStorage.getItem('tts-btn-pos');
+  if (savedPos) {
+    const { left, top } = JSON.parse(savedPos);
+    btn.style.left = left;
+    btn.style.top = top;
+    btn.style.right = 'auto';
+    btn.style.bottom = 'auto';
+  }
+
   // ── 状态提示 ──
   const toast = document.createElement('div');
   toast.id = 'tts-toast';
@@ -52,6 +62,12 @@
   });
 
   document.addEventListener('mouseup', () => {
+    if (dragMoved) {
+      localStorage.setItem('tts-btn-pos', JSON.stringify({
+        left: btn.style.left,
+        top: btn.style.top,
+      }));
+    }
     isDragging = false;
     btn.classList.remove('dragging');
   });

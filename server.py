@@ -15,7 +15,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from config import Settings
@@ -267,6 +267,48 @@ async def batch_synthesize(req: BatchRequest):
         return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/synthesize/stream")
+def synthesize_stream(req: SynthesizeRequest):
+    """语音合成 — SSE 流式返回 PCM16 chunks"""
+    def event_stream():
+        try:
+            instruction = req.director_instruction
+            if req.auto_director and not instruction:
+                instruction = director.generate_instruction(req.text)
+
+            voice_info = voice_manager.get_voice(req.voice)
+            source = voice_info.get("source", "built_in") if voice_info else None
+
+            if source == "voiceclone":
+                b64_data, mime = voice_manager.get_voiceclone_b64(req.voice)
+                if not b64_data:
+                    raise ValueError(f"voiceclone 音色数据缺失: {req.voice}")
+                # voiceclone 暂不支持流式，走一次性合成
+                audio = client.voice_clone_from_b64(b64_data, mime, req.text, req.audio_format, instruction)
+                pcm = audio[44:] if req.audio_format == "wav" else audio
+                chunk_size = 4096
+                for i in range(0, len(pcm), chunk_size):
+                    yield f"data: {base64.b64encode(pcm[i:i+chunk_size]).decode()}\n\n"
+            elif source == "voicedesign":
+                desc = voice_info.get("description", "")
+                if not desc:
+                    raise ValueError(f"voicedesign 音色描述缺失: {req.voice}")
+                audio = client.voice_design(desc, req.text, req.audio_format)
+                pcm = audio[44:] if req.audio_format == "wav" else audio
+                chunk_size = 4096
+                for i in range(0, len(pcm), chunk_size):
+                    yield f"data: {base64.b64encode(pcm[i:i+chunk_size]).decode()}\n\n"
+            else:
+                for chunk in client.synthesize_stream(req.text, instruction, req.model, req.voice):
+                    yield f"data: {base64.b64encode(chunk).decode()}\n\n"
+
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {{\"error\": \"{e}\"}}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/director/generate")
