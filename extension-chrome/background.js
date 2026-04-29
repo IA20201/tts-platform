@@ -76,6 +76,29 @@ function splitText(text, maxChars = 300) {
 
 let shouldStop = false;
 
+// ── 右键菜单：朗读全文 ──
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'tts-read-full',
+    title: '🔊 朗读全文',
+    contexts: ['page'],
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'tts-read-full') {
+    shouldStop = false;
+    chrome.tabs.sendMessage(tab.id, { type: 'getFullText' }, text => {
+      if (text) handleSynthesize(text).then(result => {
+        chrome.tabs.sendMessage(tab.id, { type: 'playAudio', ...result });
+      }).catch(e => {
+        chrome.tabs.sendMessage(tab.id, { type: 'ttsError', error: e.message });
+      });
+    });
+  }
+});
+
+// ── 消息监听 ──
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'synthesize') {
     shouldStop = false;

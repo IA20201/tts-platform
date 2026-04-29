@@ -8,6 +8,49 @@ $('engine').addEventListener('change', () => {
   });
 });
 
+// 刷新 MiMo 音色列表，返回 Promise
+async function refreshMimoVoices(server, selectedVoice) {
+  try {
+    const resp = await fetch(`${server}/voices`);
+    const data = await resp.json();
+    const sel = $('mimo-voice');
+    sel.innerHTML = '';
+    const all = [...(data.built_in || []), ...(data.custom || []).map(v => v.name)];
+    all.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    // 设置选中的音色
+    if (selectedVoice && all.includes(selectedVoice)) {
+      sel.value = selectedVoice;
+    }
+  } catch (e) {
+    // 服务器未启动，保持默认选项
+  }
+}
+
+// 刷新 AstraTTS 音色列表
+async function refreshAstraAvatars(server, selectedAvatar) {
+  try {
+    const resp = await fetch(`${server}/api/tts/fs/avatars?useV2=${$('astra-v2').checked}`);
+    const data = await resp.json();
+    const sel = $('astra-avatar');
+    sel.innerHTML = '';
+    const avatars = data.avatars || data || [];
+    avatars.forEach(avatar => {
+      const opt = document.createElement('option');
+      opt.value = avatar.id || avatar;
+      opt.textContent = avatar.id || avatar;
+      sel.appendChild(opt);
+    });
+    if (selectedAvatar) sel.value = selectedAvatar;
+  } catch (e) {
+    // 服务器未启动，保持默认选项
+  }
+}
+
 // 加载已保存的设置
 async function loadSettings() {
   const data = await chrome.storage.local.get('ttsSettings');
@@ -22,49 +65,14 @@ async function loadSettings() {
   $('moss-ref-audio').value = s.moss?.refAudio || 'assets/audio/zh_1.wav';
   // 触发引擎切换
   $('engine').dispatchEvent(new Event('change'));
-  // 加载音色列表
-  if (s.mimo?.voice) $('mimo-voice').value = s.mimo.voice;
-  if (s.astra?.avatar) $('astra-avatar').value = s.astra.avatar;
+  // 先从服务器获取音色列表，再设置保存的值
+  await refreshMimoVoices($('mimo-server').value, s.mimo?.voice);
+  await refreshAstraAvatars($('astra-server').value, s.astra?.avatar);
 }
 
-// 刷新 MiMo 音色列表
-$('mimo-refresh').addEventListener('click', async () => {
-  const server = $('mimo-server').value;
-  try {
-    const resp = await fetch(`${server}/voices`);
-    const data = await resp.json();
-    const sel = $('mimo-voice');
-    sel.innerHTML = '';
-    const all = [...(data.built_in || []), ...(data.custom || []).map(v => v.name)];
-    all.forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      sel.appendChild(opt);
-    });
-  } catch (e) {
-    alert('无法连接 MiMo 服务器: ' + e.message);
-  }
-});
-
-// 刷新 AstraTTS 音色列表
-$('astra-refresh').addEventListener('click', async () => {
-  const server = $('astra-server').value;
-  try {
-    const resp = await fetch(`${server}/api/tts/fs/avatars?useV2=${$('astra-v2').checked}`);
-    const data = await resp.json();
-    const sel = $('astra-avatar');
-    sel.innerHTML = '';
-    (data.avatars || data || []).forEach(avatar => {
-      const opt = document.createElement('option');
-      opt.value = avatar.id || avatar;
-      opt.textContent = avatar.id || avatar;
-      sel.appendChild(opt);
-    });
-  } catch (e) {
-    alert('无法连接 AstraTTS 服务器: ' + e.message);
-  }
-});
+// 刷新按钮事件
+$('mimo-refresh').addEventListener('click', () => refreshMimoVoices($('mimo-server').value, $('mimo-voice').value));
+$('astra-refresh').addEventListener('click', () => refreshAstraAvatars($('astra-server').value, $('astra-avatar').value));
 
 // 保存设置
 $('save-btn').addEventListener('click', async () => {
