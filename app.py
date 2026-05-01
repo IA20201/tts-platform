@@ -24,6 +24,11 @@ os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 os.environ.setdefault("no_proxy", "localhost,127.0.0.1,0.0.0.0")
 os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,0.0.0.0")
 
+# ffmpeg 路径（winget 安装的 Gyan.FFmpeg）
+_FFMPEG_DIR = Path.home() / "AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1-full_build/bin"
+if _FFMPEG_DIR.exists():
+    os.environ["PATH"] = str(_FFMPEG_DIR) + ";" + os.environ.get("PATH", "")
+
 import gradio as gr
 
 from config import BUILT_IN_VOICES, Settings
@@ -213,43 +218,56 @@ def design_voice_preview(description: str, preview_text: str) -> str | None:
         return None
 
 
-def clone_voice_preview(audio_file, preview_text: str) -> str | None:
-    """VoiceClone 生成预览"""
+def clone_voice_preview(audio_file, preview_text: str) -> tuple[str | None, str | None]:
+    """VoiceClone 生成预览，返回 (预览音频路径, 原始上传路径)"""
     if audio_file is None:
         gr.Warning("请上传音频样本")
-        return None
+        return (None, None)
     try:
         audio_bytes = client.voice_clone(audio_file, preview_text or "你好，这是一个音色预览测试。")
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=settings.output_dir)
         tmp.write(audio_bytes)
         tmp.close()
-        return tmp.name
+        return (tmp.name, audio_file)
     except Exception as e:
         gr.Error(f"克隆失败: {e}")
-        return None
+        return (None, None)
 
 
-def save_voice_to_lab(name: str, source: str, description: str, audio_file) -> tuple:
+def save_voice_to_lab(name: str, source: str, description: str, audio_file, clone_audio_path: str | None = None) -> tuple:
     """保存音色到音色库，返回 (结果文本, 单句音色下拉, 批量音色下拉, 删除音色下拉)"""
     if not name.strip():
         return ("请输入音色名称", gr.update(), gr.update(), gr.update())
     try:
         if source == "voicedesign":
             voice_manager.add_voice(name, "voicedesign", description=description)
-        elif source == "voiceclone" and audio_file:
-            from mimo_tts.audio_utils import read_audio_to_b64
-            b64_str, mime = read_audio_to_b64(audio_file)
-            voice_manager.add_voice(
-                name, "voiceclone",
-                voice_id=f"data:{mime};base64,{b64_str}",
-                sample_path=audio_file,
-            )
+        elif source == "voiceclone":
+            effective_audio = audio_file or clone_audio_path
+            if effective_audio:
+                from mimo_tts.audio_utils import read_audio_to_b64
+                b64_str, mime = read_audio_to_b64(effective_audio)
+                voice_manager.add_voice(
+                    name, "voiceclone",
+                    voice_id=f"data:{mime};base64,{b64_str}",
+                    sample_path=effective_audio,
+                )
+            else:
+                return ("请提供音频样本", gr.update(), gr.update(), gr.update())
         else:
             return ("请提供必要信息", gr.update(), gr.update(), gr.update())
         choices = get_voice_choices()
         return (f"音色 '{name}' 已保存", gr.update(choices=choices), gr.update(choices=choices), gr.update(choices=choices))
     except Exception as e:
         return (f"保存失败: {e}", gr.update(), gr.update(), gr.update())
+
+
+def save_clone_to_lab(name: str, audio_path: str | None) -> tuple:
+    """从克隆预览流程直接保存音色到音色库"""
+    if not name.strip():
+        return ("请输入音色名称", gr.update(), gr.update(), gr.update())
+    if not audio_path:
+        return ("请先克隆预览", gr.update(), gr.update(), gr.update())
+    return save_voice_to_lab(name, "voiceclone", "", None, audio_path)
 
 
 def delete_voice_from_lab(name: str) -> tuple:
@@ -353,11 +371,16 @@ def build_app() -> gr.Blocks:
             design_audio = gr.Audio(label="预览结果", type="filepath")
 
             gr.Markdown("### VoiceClone — 音频样本复刻")
+            clone_audio_state = gr.State(value=None)
             with gr.Row():
                 clone_file = gr.Audio(label="上传音频样本", type="filepath")
                 clone_text = gr.Textbox(label="试听文本", value="你好，这是一个音色预览测试。")
             clone_btn = gr.Button("克隆预览", variant="secondary")
             clone_audio = gr.Audio(label="预览结果", type="filepath")
+            with gr.Row():
+                clone_save_name = gr.Textbox(label="音色名称", placeholder="为克隆音色命名")
+                clone_save_btn = gr.Button("保存此音色到音色库", variant="primary")
+                clone_save_result = gr.Textbox(label="", interactive=False)
 
             gr.Markdown("### 音色库管理")
             with gr.Row():
@@ -377,10 +400,19 @@ def build_app() -> gr.Blocks:
             voices_list = gr.Textbox(label="音色列表", lines=10, interactive=False)
 
             design_btn.click(fn=design_voice_preview, inputs=[design_desc, design_text], outputs=[design_audio])
-            clone_btn.click(fn=clone_voice_preview, inputs=[clone_file, clone_text], outputs=[clone_audio])
+            clone_btn.click(
+                fn=clone_voice_preview,
+                inputs=[clone_file, clone_text],
+                outputs=[clone_audio, clone_audio_state],
+            )
+            clone_save_btn.click(
+                fn=save_clone_to_lab,
+                inputs=[clone_save_name, clone_audio_state],
+                outputs=[clone_save_result, voice_select, batch_voice, delete_voice_select],
+            )
             save_btn.click(
                 fn=save_voice_to_lab,
-                inputs=[save_name, save_source, save_desc, save_file],
+                inputs=[save_name, save_source, save_desc, save_file, clone_audio_state],
                 outputs=[save_result, voice_select, batch_voice, delete_voice_select],
             )
             delete_btn.click(
