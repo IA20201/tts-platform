@@ -32,6 +32,24 @@ uv run pytest tests/ -v          # 运行测试
 - `voice_lab/manager.py`：本地 JSON 音色库管理
 - `config.py`：pydantic-settings，从 `.env` 加载配置
 
+## API 端点（server.py，端口 18900）
+
+### 原生端点
+- `POST /synthesize` — 单句合成（返回 base64 音频）
+- `POST /synthesize/stream` — SSE 流式合成（PCM16 chunks）
+- `POST /voice-design` — 音色设计
+- `POST /voice-clone` — 音色克隆
+- `POST /batch` — 批量合成
+- `GET /voices` — 列出所有音色
+
+### OpenAI TTS 兼容端点（供 Kokoro / Custom TTS Reader 等第三方工具使用）
+- `GET /v1/models` — 返回可用模型列表
+- `GET /v1/audio/voices` — 返回可用音色列表（`{"voices": ["Chloe", ...]}`）
+- `POST /v1/audio/speech` — 合成端点
+  - `stream=false`（默认）: 返回完整 MP3/WAV 文件
+  - `stream=true`: 返回 raw PCM16 流（`audio/l16;rate=24000;channels=1`）
+  - 请求体: `{"input": "文本", "voice": "Chloe", "response_format": "mp3", "stream": false}`
+
 ## 关键实现约束
 
 - 批量合成统一走 PCM16 流式路径，最后套 WAV 头（避免 WAV 二进制拼接损坏）
