@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
@@ -141,75 +141,36 @@ async def get_voices():
 
 
 @app.post("/v1/audio/speech")
-async def audio_speech(request: dict):
-    """Kokoro 扩展合成端点（OpenAI TTS 兼容格式）— 流式返回
+async def audio_speech(raw_request: Request):
+    """Kokoro / Custom TTS Reader 合成端点（OpenAI TTS 兼容）
 
-    请求: {"model": "kokoro", "input": "文本", "voice": "Chloe", "response_format": "wav"}
-    返回: 流式音频二进制（先发 WAV 头，再逐块发 PCM 数据）
+    stream=false（默认）: 返回完整 MP3/WAV 文件
+    stream=true: 返回 raw PCM16 流（audio/l16;rate=24000）
     """
-    import queue
-    import threading
-
+    request = await raw_request.json()
     text = request.get("input", "")
     voice_input = request.get("voice", "Chloe")
     clean_voice = voice_input.split("_", 1)[-1] if "_" in voice_input else voice_input
+    response_format = request.get("response_format", "mp3")
+    stream = request.get("stream", False)
 
-    chunk_queue: queue.Queue = queue.Queue()
-
-    def _producer():
-        try:
+    if stream:
+        # 真流式：逐块返回 raw PCM16
+        def generate_pcm():
             for chunk in client.synthesize_stream(text, "", "mimo-v2.5-tts", clean_voice):
-                chunk_queue.put(("data", chunk))
-        except Exception as e:
-            chunk_queue.put(("error", str(e)))
-        finally:
-            chunk_queue.put(("done", None))
+                yield chunk
+        return StreamingResponse(generate_pcm(), media_type="audio/l16;rate=24000;channels=1")
+    else:
+        # 非流式：返回完整 MP3/WAV
+        audio_format = "mp3" if response_format == "mp3" else "wav"
 
-    threading.Thread(target=_producer, daemon=True).start()
+        def _synthesize():
+            return client.synthesize(text, "", "mimo-v2.5-tts", clean_voice, audio_format)
 
-    # 先收到第一个 chunk 确定有数据，再拼 WAV 头返回
-    first_type, first_data = chunk_queue.get()
-    if first_type == "error":
-        raise HTTPException(status_code=500, detail=first_data)
-
-    sample_rate = 24000
-    num_channels = 1
-    bits_per_sample = 16
-
-    def _stream():
-        all_pcm = bytearray(first_data)
-        while True:
-            msg_type, chunk_data = chunk_queue.get()
-            if msg_type == "error":
-                break
-            if msg_type == "done":
-                break
-            all_pcm.extend(chunk_data)
-
-        # 全部收完后一次性输出完整 WAV（Kokoro 扩展需要完整文件才能播放）
-        data_size = len(all_pcm)
-        byte_rate = sample_rate * num_channels * bits_per_sample // 8
-        block_align = num_channels * bits_per_sample // 8
-
-        header = bytearray()
-        header += b"RIFF"
-        header += (36 + data_size).to_bytes(4, "little")
-        header += b"WAVE"
-        header += b"fmt "
-        header += (16).to_bytes(4, "little")
-        header += (1).to_bytes(2, "little")
-        header += num_channels.to_bytes(2, "little")
-        header += sample_rate.to_bytes(4, "little")
-        header += byte_rate.to_bytes(4, "little")
-        header += block_align.to_bytes(2, "little")
-        header += bits_per_sample.to_bytes(2, "little")
-        header += b"data"
-        header += data_size.to_bytes(4, "little")
-
-        yield bytes(header)
-        yield bytes(all_pcm)
-
-    return StreamingResponse(_stream(), media_type="audio/wav")
+        loop = asyncio.get_event_loop()
+        audio_bytes = await loop.run_in_executor(None, _synthesize)
+        media = "audio/mpeg" if audio_format == "mp3" else "audio/wav"
+        return Response(content=audio_bytes, media_type=media)
 
 
 @app.post("/synthesize", response_model=TTSResponse)
