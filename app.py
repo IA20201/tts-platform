@@ -20,6 +20,9 @@ import tempfile
 from pathlib import Path
 
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
+# 排除本地地址不走代理（Clash / 系统代理会导致 startup-events 502）
+os.environ.setdefault("no_proxy", "localhost,127.0.0.1,0.0.0.0")
+os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,0.0.0.0")
 
 import gradio as gr
 
