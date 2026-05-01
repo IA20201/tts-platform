@@ -8,6 +8,11 @@
 
 from __future__ import annotations
 
+import sys
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import asyncio
 import logging
 import os
@@ -389,9 +394,10 @@ if __name__ == "__main__":
     os.makedirs(settings.output_dir, exist_ok=True)
     app = build_app()
     app.launch(
-        server_name="0.0.0.0",
+        server_name="127.0.0.1",
         server_port=7860,
         share=False,
         theme=gr.themes.Soft(),
         enable_monitoring=False,
+        ssr_mode=False,
     )
