@@ -283,6 +283,36 @@ class MiMoTTSClient:
         )
         return self._decode_audio_response(completion, fmt)
 
+    def voice_clone_stream(
+        self,
+        sample_b64: str,
+        sample_mime: str,
+        text: str,
+        director_instruction: str = "",
+    ) -> Generator[bytes, None, None]:
+        """从 Base64 数据复刻音色，流式返回 PCM16 chunks"""
+        messages = [
+            {"role": "user", "content": director_instruction or ""},
+            {"role": "assistant", "content": text},
+        ]
+        completion = self.client.chat.completions.create(
+            model="mimo-v2.5-tts-voiceclone",
+            messages=messages,
+            audio={
+                "format": "pcm16",
+                "voice": f"data:{sample_mime};base64,{sample_b64}",
+            },
+            stream=True,
+        )
+        for chunk in completion:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            audio = getattr(delta, "audio", None)
+            data = self._extract_stream_audio_data(audio)
+            if data:
+                yield data
+
     # ──────────────────────────────────────────────
     #  内部方法
     # ──────────────────────────────────────────────

@@ -154,18 +154,49 @@ async def audio_speech(raw_request: Request):
     response_format = request.get("response_format", "mp3")
     stream = request.get("stream", False)
 
+    # 检测自定义音色类型
+    voice_info = voice_manager.get_voice(clean_voice)
+    source = voice_info.get("source", "built_in") if voice_info else None
+
     if stream:
-        # 真流式：逐块返回 raw PCM16
         def generate_pcm():
-            for chunk in client.synthesize_stream(text, "", "mimo-v2.5-tts", clean_voice):
-                yield chunk
+            if source == "voiceclone":
+                clone_data = voice_manager.get_voiceclone_b64(clean_voice)
+                if not clone_data:
+                    raise ValueError(f"voiceclone 音色数据缺失: {clean_voice}")
+                b64_data, mime = clone_data
+                for chunk in client.voice_clone_stream(b64_data, mime, text, ""):
+                    yield chunk
+            elif source == "voicedesign":
+                desc = voice_info.get("description", "")
+                if not desc:
+                    raise ValueError(f"voicedesign 音色描述缺失: {clean_voice}")
+                audio = client.voice_design(desc, text, "wav")
+                pcm = audio[44:]
+                chunk_size = 4096
+                for i in range(0, len(pcm), chunk_size):
+                    yield pcm[i:i + chunk_size]
+            else:
+                for chunk in client.synthesize_stream(text, "", "mimo-v2.5-tts", clean_voice):
+                    yield chunk
         return StreamingResponse(generate_pcm(), media_type="audio/l16;rate=24000;channels=1")
     else:
-        # 非流式：返回完整 MP3/WAV
         audio_format = "mp3" if response_format == "mp3" else "wav"
 
         def _synthesize():
-            return client.synthesize(text, "", "mimo-v2.5-tts", clean_voice, audio_format)
+            if source == "voiceclone":
+                clone_data = voice_manager.get_voiceclone_b64(clean_voice)
+                if not clone_data:
+                    raise ValueError(f"voiceclone 音色数据缺失: {clean_voice}")
+                b64_data, mime = clone_data
+                return client.voice_clone_from_b64(b64_data, mime, text, audio_format, "")
+            elif source == "voicedesign":
+                desc = voice_info.get("description", "")
+                if not desc:
+                    raise ValueError(f"voicedesign 音色描述缺失: {clean_voice}")
+                return client.voice_design(desc, text, audio_format)
+            else:
+                return client.synthesize(text, "", "mimo-v2.5-tts", clean_voice, audio_format)
 
         loop = asyncio.get_event_loop()
         audio_bytes = await loop.run_in_executor(None, _synthesize)
@@ -341,12 +372,8 @@ def synthesize_stream(req: SynthesizeRequest):
                 b64_data, mime = voice_manager.get_voiceclone_b64(req.voice)
                 if not b64_data:
                     raise ValueError(f"voiceclone 音色数据缺失: {req.voice}")
-                # voiceclone 暂不支持流式，走一次性合成
-                audio = client.voice_clone_from_b64(b64_data, mime, req.text, req.audio_format, instruction)
-                pcm = audio[44:] if req.audio_format == "wav" else audio
-                chunk_size = 4096
-                for i in range(0, len(pcm), chunk_size):
-                    yield f"data: {base64.b64encode(pcm[i:i+chunk_size]).decode()}\n\n"
+                for chunk in client.voice_clone_stream(b64_data, mime, req.text, instruction):
+                    yield f"data: {base64.b64encode(chunk).decode()}\n\n"
             elif source == "voicedesign":
                 desc = voice_info.get("description", "")
                 if not desc:
@@ -394,30 +421,42 @@ async def ws_synthesize(ws: WebSocket):
                 await ws.close()
                 return
             b64_data, mime = clone_data
-            voice_api = f"data:{mime};base64,{b64_data}"
-            effective_model = "mimo-v2.5-tts-voiceclone"
+            # 在线程池中收集所有 PCM chunks（避免阻塞事件循环）
+            loop = asyncio.get_event_loop()
+            all_chunks = []
+
+            def _collect_chunks():
+                for chunk in client.voice_clone_stream(b64_data, mime, text, instruction):
+                    all_chunks.append(chunk)
+
+            await loop.run_in_executor(None, _collect_chunks)
         elif source == "voicedesign":
             desc = voice_info.get("description", "")
             if not desc:
                 await ws.send_text(json.dumps({"type": "error", "message": f"voicedesign 描述缺失: {voice}"}))
                 await ws.close()
                 return
-            voice_api = None
-            effective_model = "mimo-v2.5-tts-voicedesign"
-            instruction = desc
+            # voicedesign 暂不支持流式，走一次性合成
+            loop = asyncio.get_event_loop()
+            all_chunks = []
+
+            def _collect_chunks():
+                audio = client.voice_design(desc, text, "wav")
+                pcm = audio[44:]  # 去掉 WAV 头
+                chunk_size = 4096
+                for i in range(0, len(pcm), chunk_size):
+                    all_chunks.append(pcm[i:i + chunk_size])
+
+            await loop.run_in_executor(None, _collect_chunks)
         else:
-            voice_api = voice
-            effective_model = model
+            loop = asyncio.get_event_loop()
+            all_chunks = []
 
-        # 在线程池中收集所有 PCM chunks（避免阻塞事件循环）
-        loop = asyncio.get_event_loop()
-        all_chunks = []
+            def _collect_chunks():
+                for chunk in client.synthesize_stream(text, instruction, model, voice):
+                    all_chunks.append(chunk)
 
-        def _collect_chunks():
-            for chunk in client.synthesize_stream(text, instruction, effective_model, voice_api):
-                all_chunks.append(chunk)
-
-        await loop.run_in_executor(None, _collect_chunks)
+            await loop.run_in_executor(None, _collect_chunks)
 
         # 逐个发送 chunks
         total_bytes = 0
