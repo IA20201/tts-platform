@@ -147,7 +147,16 @@ async def audio_speech(raw_request: Request):
     stream=false（默认）: 返回完整 MP3/WAV 文件
     stream=true: 返回 raw PCM16 流（audio/l16;rate=24000）
     """
-    request = await raw_request.json()
+    # 先获取原始字节再解析 JSON，兼容非 UTF-8 编码
+    body = await raw_request.body()
+    try:
+        request = json.loads(body.decode("utf-8", errors="replace"))
+    except Exception:
+        # 尝试 GBK 编码（Windows 客户端常用）
+        try:
+            request = json.loads(body.decode("gbk", errors="replace"))
+        except Exception:
+            request = {}
     text = request.get("input", "")
     voice_input = request.get("voice", "Chloe")
     clean_voice = voice_input.split("_", 1)[-1] if "_" in voice_input else voice_input
