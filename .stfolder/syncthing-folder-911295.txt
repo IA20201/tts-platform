@@ -1,0 +1,5 @@
+# This directory is a Syncthing folder marker.
+# Do not delete.
+
+folderID: kskxw-tqrsn
+created: 2026-04-29T21:53:22+08:00
