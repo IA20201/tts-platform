@@ -82,8 +82,9 @@ class MiMoTTSClient:
                      model_str, voice, fmt, len(text))
         # 直接用 httpx 发请求，避免 OpenAI SDK 编码中文音色名时损坏
         import httpx
+        base = str(self.client.base_url).rstrip('/')
         resp = httpx.post(
-            f"{self.client.base_url}/chat/completions",
+            f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {self.client.api_key}", "Content-Type": "application/json; charset=utf-8"},
             json=params,
             timeout=60,
@@ -143,9 +144,10 @@ class MiMoTTSClient:
 
         # 直接用 httpx 发流式请求，避免 OpenAI SDK 编码中文音色名时损坏
         import httpx
+        base = str(self.client.base_url).rstrip('/')
         with httpx.stream(
             "POST",
-            f"{self.client.base_url}/chat/completions",
+            f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {self.client.api_key}", "Content-Type": "application/json; charset=utf-8"},
             json=params,
             timeout=120,
@@ -159,13 +161,16 @@ class MiMoTTSClient:
                     break
                 try:
                     chunk = json.loads(data_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    choices = chunk.get("choices", [])
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {})
                     audio = delta.get("audio", None)
                     if audio:
                         audio_data = audio.get("data") if isinstance(audio, dict) else getattr(audio, "data", None)
                         if audio_data:
                             yield base64.b64decode(audio_data)
-                except (json.JSONDecodeError, KeyError):
+                except (json.JSONDecodeError, KeyError, IndexError):
                     continue
 
     async def synthesize_stream_async(
