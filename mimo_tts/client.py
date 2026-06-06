@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 from collections.abc import Generator
 from pathlib import Path
@@ -79,8 +80,17 @@ class MiMoTTSClient:
 
         logger.info("合成请求: model=%s, voice=%s, fmt=%s, text_len=%d",
                      model_str, voice, fmt, len(text))
-        completion = self.client.chat.completions.create(**params)
-        return self._decode_audio_response(completion, fmt)
+        # 直接用 httpx 发请求，避免 OpenAI SDK 编码中文音色名时损坏
+        import httpx
+        resp = httpx.post(
+            f"{self.client.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.client.api_key}", "Content-Type": "application/json; charset=utf-8"},
+            json=params,
+            timeout=60,
+        )
+        resp.raise_for_status()
+        completion = resp.json()
+        return self._decode_audio_response_raw(completion, fmt)
 
     async def synthesize_async(
         self,
@@ -131,15 +141,32 @@ class MiMoTTSClient:
         if model_str != "mimo-v2.5-tts-voicedesign":
             params["audio"]["voice"] = voice
 
-        completion = self.client.chat.completions.create(**params)
-        for chunk in completion:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            audio = getattr(delta, "audio", None)
-            data = self._extract_stream_audio_data(audio)
-            if data:
-                yield data
+        # 直接用 httpx 发流式请求，避免 OpenAI SDK 编码中文音色名时损坏
+        import httpx
+        with httpx.stream(
+            "POST",
+            f"{self.client.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.client.api_key}", "Content-Type": "application/json; charset=utf-8"},
+            json=params,
+            timeout=120,
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    audio = delta.get("audio", None)
+                    if audio:
+                        audio_data = audio.get("data") if isinstance(audio, dict) else getattr(audio, "data", None)
+                        if audio_data:
+                            yield base64.b64decode(audio_data)
+                except (json.JSONDecodeError, KeyError):
+                    continue
 
     async def synthesize_stream_async(
         self,
@@ -380,4 +407,13 @@ class MiMoTTSClient:
         audio = getattr(message, "audio", None)
         if audio and hasattr(audio, "data") and audio.data:
             return base64.b64decode(audio.data)
+        raise ValueError(f"API 返回中未找到音频数据: {completion}")
+
+    @staticmethod
+    def _decode_audio_response_raw(completion: dict, fmt: str) -> bytes:
+        """从非流式 completion（原始 dict）中提取音频 bytes"""
+        message = completion["choices"][0]["message"]
+        audio = message.get("audio", {})
+        if audio and audio.get("data"):
+            return base64.b64decode(audio["data"])
         raise ValueError(f"API 返回中未找到音频数据: {completion}")
